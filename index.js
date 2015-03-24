@@ -1,7 +1,7 @@
 var Gitter = require('node-gitter');
 var config = require('./config.json');
 
-var CALC_PATTERN = /^calc ([\(\)\*\/\+\-\d\s]+)/;
+var CALC_PATTERN = /^calc ([\(\)\*\/\+\-\d\.\s]+)/;
 
 var chanel = process.argv[2];
 
