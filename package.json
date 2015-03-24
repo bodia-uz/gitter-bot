@@ -1,6 +1,15 @@
 {
   "name": "gitter-bot",
+  "description": "UA Web Challenge VIІ JavaScript Task",
+  "author": "Bohdan Lyzanets <bogdan.uz@gmail.com>",
   "version": "0.0.1",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bodia-uz/gitter-bot"
+  },
   "dependencies": {
     "node-gitter": "^1.2.8"
   }
