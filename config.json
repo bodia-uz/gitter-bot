@@ -1,3 +1,6 @@
 {
-  "token" : "YOUR_GITTER_TOKEN"
+  "token" : "YOUR_GITTER_TOKEN",
+  "botGreetingMessage": "###Hello! I am Calc bot.\nType `calc: ...` to evaluate arithmetic expression.\nUse `()*/+-.` symbols only in expression.",
+  "calcResultFormat": ">@%s: %s\n\n$$%s=%d$$",
+  "calcErrorFormat": ">@%s: %s\n\n$$%s$$ - %s"
 }
