@@ -1,15 +1,13 @@
 var Gitter = require('node-gitter');
 var util = require('util');
+var calc = require('./calc/shunting-yard-calc.js');
 
 var CALC_PATTERN = /^calc (.+)/;
-var EXPRESSION_PATTERN = /^[\(\)\*\/\+\-\d\.\s]+$/;
 
 var defaultOptions = {
   calcResultFormat: '>@%s: %s\n\n$$%s=%d$$',
   calcErrorFormat: '>@%s: %s\n\n$$%s$$ - %s',
-  botGreetingMessage: false,
-  invalidSymbolsUsedMessage: 'invalid symbols used in expression',
-  invalidExpressionMessage: 'invalid arithmetic expression'
+  botGreetingMessage: false
 };
 
 /**
@@ -154,21 +152,15 @@ GitterBot.prototype._handleRoomMessage = function(room, message) {
 
     expression = match[1];
 
-    if (!EXPRESSION_PATTERN.test(expression)) {
-      util.log('calc:', expression + ' - ' + this.config.invalidSymbolsUsedMessage);
-      room.send(this._formatInvalidExpression(message, expression, this.config.invalidSymbolsUsedMessage));
-      return;
-    }
-
     try {
-      expressionResult = +eval(expression);
+      expressionResult = calc(expression);
 
       util.log('calc:', expression + '=' + expressionResult);
       room.send(this._formatExpressionResult(message, expression, expressionResult));
 
     } catch(e) {
-      util.log('calc:', expression + ' - ' + this.config.invalidExpressionMessage);
-      room.send(this._formatInvalidExpression(message, expression, this.config.invalidExpressionMessage));
+      util.log('calc:', expression + ' - ' + e.message);
+      room.send(this._formatInvalidExpression(message, expression, e.message));
     }
   }
 };
