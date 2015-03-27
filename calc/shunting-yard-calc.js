@@ -1,5 +1,19 @@
 var util = require('util');
 
+var operators = {
+  'u+': {argumentsCount: 1, precedence: 5, associativity: 'Right', eval: function(a) {return +a;}},
+  'u-': {argumentsCount: 1, precedence: 5, associativity: 'Right', eval: function(a) {return -a;}},
+  '*': {argumentsCount: 2, precedence: 3, associativity: 'Left', eval: function(a, b) {return a * b;}},
+  '/': {argumentsCount: 2, precedence: 3, associativity: 'Left', eval: function(a, b) {return a / b;}},
+  '+': {argumentsCount: 2, precedence: 2, associativity: 'Left', eval: function(a, b) {return a + b;}},
+  '-': {argumentsCount: 2, precedence: 2, associativity: 'Left', eval: function(a, b) {return a - b;}}
+};
+
+// allow or disallow NaN and Infinity in result
+var ALLOW_INVALID_OPERATION = false; // true | false
+
+var DIGIT_OR_DOT = /[\d\.]/;
+
 var tokenType = {
   NUMBER: 0,
   OPERATOR: 1,
@@ -12,19 +26,6 @@ var errorMessage = {
   UNEXPECTED_TOKEN: 'Unexpected token "%s" at %s',
   UNEXPECTED_NUMBER: 'Unexpected number "%s"',
   INVALID_OPERATION: 'Invalid operation "%s=%s"'
-};
-
-// allow or disallow NaN and Infinity in result
-var ALLOW_INVALID_OPERATION = false; // true | false
-
-var operators = {
-  'u+': {argumentsCount: 1, precedence: 5, associativity: 'Right', eval: function(a) {return +a;}},
-  'u-': {argumentsCount: 1, precedence: 5, associativity: 'Right', eval: function(a) {return -a;}},
-  '^': {argumentsCount: 2, precedence: 4, associativity: 'Right', eval: function(a, b) {return Math.pow(a, b);}},
-  '*': {argumentsCount: 2, precedence: 3, associativity: 'Left', eval: function(a, b) {return a * b;}},
-  '/': {argumentsCount: 2, precedence: 3, associativity: 'Left', eval: function(a, b) {return a / b;}},
-  '+': {argumentsCount: 2, precedence: 2, associativity: 'Left', eval: function(a, b) {return a + b;}},
-  '-': {argumentsCount: 2, precedence: 2, associativity: 'Left', eval: function(a, b) {return a - b;}}
 };
 
 /**
@@ -43,7 +44,7 @@ function shuntingYardCalc(expression) {
 
   _tokensEach(expression, function(token, prevToken) {
     var number;
-    var top, o1, o2;
+    var o1, o2;
 
     switch (token.type) {
       case tokenType.NUMBER:
@@ -62,28 +63,24 @@ function shuntingYardCalc(expression) {
 
         // If the token is an operator, o1, then
 
-        // if token is '+' or '-'
-        // and previous token is operator or left parenthesis '('
-        // or is expression start
-        // then mark operator as unary
+        o1 = token.value;
 
-        o1 = _isUnaryOperator(token, prevToken) ? 'u' + token.value : token.value;
+        // while there is an operator token, o2,
+        // at the top of the operator stack, and either
+        // o1 is left-associative and its precedence is less than or equal to that of o2, or
+        // o1 is right associative, and has precedence less than that of o2,
+        // then pop o2 off the operator stack
+        // and try evaluate with the output queue;
 
         top = stack.length;
 
         while (--top >= 0 && (o2 = stack[top]) && o2 !== '(' && (
-        _isLeft(o1) && _opPrecedence(o1) <= _opPrecedence(o2) ||
-        _isRight(o1) && _opPrecedence(o1) < _opPrecedence(o2)
+          _isLeft(o1) && _opPrecedence(o1) <= _opPrecedence(o2) ||
+          _isRight(o1) && _opPrecedence(o1) < _opPrecedence(o2)
         )) {
 
-          // while there is an operator token, o2,
-          // at the top of the operator stack, and either
-          // o1 is left-associative and its precedence is less than or equal to that of o2, or
-          // o1 is right associative, and has precedence less than that of o2,
-          // then pop o2 off the operator stack
-          // and try evaluate with the output queue;
-
           _evaluate(stack.pop(), output);
+
         }
 
         // push o1 onto the operator stack.
@@ -93,6 +90,7 @@ function shuntingYardCalc(expression) {
         break;
 
       case tokenType.LEFT_PARENTHESIS:
+
         // If the token is a left parenthesis, then push it onto the stack.
 
         stack.push(token.value);
@@ -103,13 +101,14 @@ function shuntingYardCalc(expression) {
 
         // If the token is a right parenthesis:
 
+        // Until the token at the top of the stack is a left parenthesis,
+        // pop operators off the stack onto the output queue.
+
         top = stack.length;
         while (--top >= 0 && stack[top] !== '(') {
 
-          // Until the token at the top of the stack is a left parenthesis,
-          // pop operators off the stack onto the output queue.
-
           _evaluate(stack.pop(), output);
+
         }
 
         // Pop the left parenthesis from the stack, but not onto the output queue.
@@ -130,22 +129,21 @@ function shuntingYardCalc(expression) {
   });
 
   // When there are no more tokens to read
+  // While there are still operator tokens in the stack
 
   top = stack.length;
-
   while (--top >= 0) {
-
-    // While there are still operator tokens in the stack
 
     if (stack[top] === '(' || stack[top] === ')') {
 
-      //If the operator token on the top of the stack is a parenthesis, then there are mismatched parentheses.
+      // If the operator token on the top of the stack is a parenthesis,
+      // then there are mismatched parentheses.
 
       throw new Error(errorMessage.UNMATCHED_PARENTHESIS);
 
     } else {
 
-      // Pop the operator onto the output queue.
+      // Evaluate the operator using the output queue.
 
       _evaluate(stack.pop(), output);
     }
@@ -181,16 +179,6 @@ function _evaluate(token, output) {
 }
 
 /**
- * Convert result as 0.020000000000000004 to 0.02
- * @param {Number} num
- * @returns {*|Number}
- * @private
- */
-function _fixNumber(num) {
-  return num && parseFloat(num.toPrecision(12));
-}
-
-/**
  * Iterates over tokens of `expression` invoking `iteratee` for each token.
  * @param {string} expression
  * @param {Function} iteratee
@@ -212,7 +200,7 @@ function _getTokens(expression) {
   expression.split('').forEach(function(char, index) {
     var token;
 
-    if (/[\d\.]/.test(char)) {
+    if (DIGIT_OR_DOT.test(char)) {
 
       // if is digit or dot
 
@@ -236,11 +224,16 @@ function _getTokens(expression) {
 
       // if +, -, *, / etc.
 
+      // NOTE: if token is '+' or '-'
+      // and previous token is operator or left parenthesis '('
+      // or is expression start
+      // then mark operator as unary
+
       tokens.push({
-        value: char,
+        value: _isUnaryOperator(char, tokens[tokens.length - 1]) ? 'u' + char : char,
         type: tokenType.OPERATOR,
         index: index
-      })
+      });
 
     } else if (char === '(' || char == ')') {
 
@@ -260,16 +253,16 @@ function _getTokens(expression) {
 }
 
 /**
- * Check if toke in unary operation
- * @param {Object} token - current token
- * @param {Object} prevToken - previous token
+ * Check if token char in unary operation
+ * @param {Object} char - current token char
+ * @param {Object} tokenBefore - previous token
  * @returns {boolean}
  * @private
  */
-function _isUnaryOperator(token, prevToken) {
+function _isUnaryOperator(char, tokenBefore) {
   return (
-  (token.value === '+' || token.value === '-') &&
-  (!prevToken || prevToken.type === tokenType.OPERATOR || prevToken.type === tokenType.LEFT_PARENTHESIS)
+    char === '+' || char === '-' &&
+    (!tokenBefore || tokenBefore.type === tokenType.OPERATOR || tokenBefore.type === tokenType.LEFT_PARENTHESIS)
   );
 }
 
@@ -283,6 +276,16 @@ function _isRight(token) {
 
 function _opPrecedence(token) {
   return operators[token].precedence;
+}
+
+/**
+ * Convert result as 0.020000000000000004 to 0.02
+ * @param {Number} num
+ * @returns {Number}
+ * @private
+ */
+function _fixNumber(num) {
+  return num && parseFloat(num.toPrecision(12));
 }
 
 /**
@@ -301,11 +304,13 @@ function _arrayEach(array, iteratee) {
     }
   }
 }
+
 /**
  * Pop multiple elements form `array`
  * @param {Array} array
  * @param {number} popCount - elements count to pop
  * @returns {Array} - return elements that was pop put
+ * @private
  */
 function _arrayPop(array, popCount) {
   return array.splice(array.length - popCount, popCount);
