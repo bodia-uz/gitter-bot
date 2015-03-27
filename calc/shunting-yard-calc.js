@@ -1,4 +1,21 @@
-// http://en.wikipedia.org/wiki/Shunting-yard_algorithm
+var util = require('util');
+
+var tokenType = {
+  NUMBER: 0,
+  OPERATOR: 1,
+  LEFT_PARENTHESIS: 2,
+  RIGHT_PARENTHESIS: 3
+};
+
+var errorMessage = {
+  UNMATCHED_PARENTHESIS: 'Unmatched parenthesis.',
+  UNEXPECTED_TOKEN: 'Unexpected token "%s" at %s',
+  UNEXPECTED_NUMBER: 'Unexpected number "%s"',
+  INVALID_OPERATION: 'Invalid operation "%s=%s"'
+};
+
+// allow or disallow NaN and Infinity in result
+var ALLOW_INVALID_OPERATION = false; // true | false
 
 var operators = {
   'u+': {argumentsCount: 1, precedence: 5, associativity: 'Right', eval: function(a) {return +a;}},
@@ -12,6 +29,7 @@ var operators = {
 
 /**
  * Calculate expression using shunting-yard algorithm
+ * Check out {@link http://en.wikipedia.org/wiki/Shunting-yard_algorithm}
  * @param {string} expression - Arithmetic expression
  * @returns {number} - Arithmetic expression result
  */
@@ -19,95 +37,96 @@ function shuntingYardCalc(expression) {
   var output = [];
   var stack = [];
 
-  var prevToken = null;
-
   var top;
 
   // While there are tokens to be read:
 
-  _getTokens(expression).forEach(function(token, index) {
+  _tokensEach(expression, function(token, prevToken) {
+    var number;
     var top, o1, o2;
 
-    if (_isNumber(token)) {
-      if (_isNumber(prevToken)) {
-        // if previous token also number part
-        // concatenate
-        output[output.length - 1] = +(output[output.length - 1] + token);
-      } else {
-        output.push(+token);
-      }
-    }
-    else if (_isOperator(token)) {
+    switch (token.type) {
+      case tokenType.NUMBER:
 
-      // If the token is an operator, o1, then
+        number = +token.value;
 
-      // if token is '+' or '-'
-      // and previous token is operator or left parenthesis '('
-      // or is expression start
-      // then mark operator as unary
+        // check token is valid number
+        if (isNaN(number)) {
+          throw new Error(util.format(errorMessage.UNEXPECTED_NUMBER, token.value));
+        }
 
-      if (_isUnary(token, prevToken)) {
-        token = 'u' + token;
-      }
+        output.push(number);
+        break;
 
-      o1 = token;
+      case tokenType.OPERATOR:
 
-      top = stack.length;
+        // If the token is an operator, o1, then
 
-      while (--top >= 0 && (o2 = stack[top]) && _isOperator(o2) && (
-        _isLeft(o1) && _precedence(o1) <= _precedence(o2) ||
-        _isRight(o1) && _precedence(o1) < _precedence(o2)
+        // if token is '+' or '-'
+        // and previous token is operator or left parenthesis '('
+        // or is expression start
+        // then mark operator as unary
+
+        o1 = _isUnaryOperator(token, prevToken) ? 'u' + token.value : token.value;
+
+        top = stack.length;
+
+        while (--top >= 0 && (o2 = stack[top]) && o2 !== '(' && (
+        _isLeft(o1) && _opPrecedence(o1) <= _opPrecedence(o2) ||
+        _isRight(o1) && _opPrecedence(o1) < _opPrecedence(o2)
         )) {
 
-        // while there is an operator token, o2,
-        // at the top of the operator stack, and either
-        // o1 is left-associative and its precedence is less than or equal to that of o2, or
-        // o1 is right associative, and has precedence less than that of o2,
-        // then pop o2 off the operator stack
-        // and try evaluate with the output queue;
+          // while there is an operator token, o2,
+          // at the top of the operator stack, and either
+          // o1 is left-associative and its precedence is less than or equal to that of o2, or
+          // o1 is right associative, and has precedence less than that of o2,
+          // then pop o2 off the operator stack
+          // and try evaluate with the output queue;
 
-        _evaluate(stack.pop(), output);
-      }
+          _evaluate(stack.pop(), output);
+        }
 
-      // push o1 onto the operator stack.
+        // push o1 onto the operator stack.
 
-      stack.push(o1);
+        stack.push(o1);
+
+        break;
+
+      case tokenType.LEFT_PARENTHESIS:
+        // If the token is a left parenthesis, then push it onto the stack.
+
+        stack.push(token.value);
+
+        break;
+
+      case tokenType.RIGHT_PARENTHESIS:
+
+        // If the token is a right parenthesis:
+
+        top = stack.length;
+        while (--top >= 0 && stack[top] !== '(') {
+
+          // Until the token at the top of the stack is a left parenthesis,
+          // pop operators off the stack onto the output queue.
+
+          _evaluate(stack.pop(), output);
+        }
+
+        // Pop the left parenthesis from the stack, but not onto the output queue.
+
+        if (stack.pop() !== '(') {
+
+          // If the stack runs out without finding a left parenthesis, then there are mismatched parentheses.
+
+          throw new Error(errorMessage.UNMATCHED_PARENTHESIS);
+        }
+        break;
+
+      default:
+        throw new Error(util.format(errorMessage.UNEXPECTED_TOKEN, token.value, token.index));
+        break
     }
-    else if (token === '(') {
 
-      // If the token is a left parenthesis, then push it onto the stack.
-
-      stack.push(token);
-    }
-    else if (token === ')') {
-
-      // If the token is a right parenthesis:
-
-      top = stack.length;
-      while (--top >= 0 && stack[top] !== '(') {
-
-        // Until the token at the top of the stack is a left parenthesis,
-        // pop operators off the stack onto the output queue.
-
-        _evaluate(stack.pop(), output);
-      }
-
-      // Pop the left parenthesis from the stack, but not onto the output queue.
-
-      if (stack.pop() !== '(') {
-
-        // If the stack runs out without finding a left parenthesis, then there are mismatched parentheses.
-
-        throw new Error('Unmatched parenthesis. Character number ' + index);
-      }
-    }
-    else {
-      throw new Error('Unexpected token ' + token);
-    }
-
-    prevToken = token;
-
-    console.log('token, output, stack', token, output, stack);
   });
 
   // When there are no more tokens to read
@@ -122,7 +141,7 @@ function shuntingYardCalc(expression) {
 
       //If the operator token on the top of the stack is a parenthesis, then there are mismatched parentheses.
 
-      throw new Error('Unmatched parenthesis.');
+      throw new Error(errorMessage.UNMATCHED_PARENTHESIS);
 
     } else {
 
@@ -132,9 +151,16 @@ function shuntingYardCalc(expression) {
     }
   }
 
-  return output[0];
+  return _fixNumber(output[0]);
 }
 
+/**
+ * Evaluate operator `token` using arguments from `output` array.
+ * Pop operator arguments from output array and push operator result
+ * @param {string} token
+ * @param {Array} output
+ * @private
+ */
 function _evaluate(token, output) {
   var operator = operators[token];
   var operatorArguments = _arrayPop(output, operator.argumentsCount);
@@ -142,23 +168,109 @@ function _evaluate(token, output) {
   // evaluate operator
   var operatorResult = operator.eval.apply(null, operatorArguments);
 
+  if (!isFinite(operatorResult) && !ALLOW_INVALID_OPERATION) {
+    // prevent zero division
+    throw new Error(util.format(
+      errorMessage.INVALID_OPERATION,
+      operatorArguments.map(_fixNumber).join(token),
+      operatorResult
+    ));
+  }
+
   output.push(operatorResult);
 }
 
+/**
+ * Convert result as 0.020000000000000004 to 0.02
+ * @param {Number} num
+ * @returns {*|Number}
+ * @private
+ */
+function _fixNumber(num) {
+  return num && parseFloat(num.toPrecision(12));
+}
+
+/**
+ * Iterates over tokens of `expression` invoking `iteratee` for each token.
+ * @param {string} expression
+ * @param {Function} iteratee
+ * @private
+ */
+function _tokensEach(expression, iteratee) {
+  _arrayEach(_getTokens(expression), iteratee);
+}
+
+/**
+ * Convert string to token array
+ * @param {string} expression
+ * @returns {Array<string>} tokens array
+ * @private
+ */
 function _getTokens(expression) {
-  return expression
-    .split('')
-    .filter(function(c) {
-      return c !== ' ';
-    });
+  var tokens = [];
+
+  expression.split('').forEach(function(char, index) {
+    var token;
+
+    if (/[\d\.]/.test(char)) {
+
+      // if is digit or dot
+
+      if (tokens.length && tokens[tokens.length - 1].type === tokenType.NUMBER) {
+
+        // if previous token also number part
+        // concatenate
+        tokens[tokens.length - 1].value += char;
+
+      } else {
+
+        // push number
+        tokens.push({
+          value: char,
+          type: tokenType.NUMBER,
+          index: index
+        });
+      }
+
+    } else if (operators.hasOwnProperty(char)) {
+
+      // if +, -, *, / etc.
+
+      tokens.push({
+        value: char,
+        type: tokenType.OPERATOR,
+        index: index
+      })
+
+    } else if (char === '(' || char == ')') {
+
+      tokens.push({
+        value: char,
+        type: char === '(' ? tokenType.LEFT_PARENTHESIS : tokenType.RIGHT_PARENTHESIS,
+        index: index
+      })
+
+    } else if (char !== ' ') {
+      throw new Error(util.format(errorMessage.UNEXPECTED_TOKEN, char, index));
+    }
+
+  });
+
+  return tokens;
 }
 
-function _isNumber(token) {
-  return /[\d\.]/.test(token);
-}
-
-function _isOperator(token) {
-  return operators.hasOwnProperty(token);
+/**
+ * Check if toke in unary operation
+ * @param {Object} token - current token
+ * @param {Object} prevToken - previous token
+ * @returns {boolean}
+ * @private
+ */
+function _isUnaryOperator(token, prevToken) {
+  return (
+  (token.value === '+' || token.value === '-') &&
+  (!prevToken || prevToken.type === tokenType.OPERATOR || prevToken.type === tokenType.LEFT_PARENTHESIS)
+  );
 }
 
 function _isLeft(token) {
@@ -169,19 +281,31 @@ function _isRight(token) {
   return operators[token].associativity === 'Right';
 }
 
-function _isUnary(token, prevToken) {
-  return (token === '+' || token === '-') && (prevToken === null || _isOperator(prevToken) || prevToken === '(')
-}
-
-function _precedence(token) {
+function _opPrecedence(token) {
   return operators[token].precedence;
 }
 
 /**
- * pop multiple elements form array
+ * Iterates over item of `array` invoking `iteratee` for each token.
+ * @param {Array} array
+ * @param {Function} iteratee
+ * @private
+ */
+function _arrayEach(array, iteratee) {
+  var index = -1;
+  var length = array.length;
+
+  while (++index < length) {
+    if (iteratee(array[index], array[index - 1], index, array) === false) {
+      break;
+    }
+  }
+}
+/**
+ * Pop multiple elements form `array`
  * @param {Array} array
  * @param {number} popCount - elements count to pop
- * @returns {Array}
+ * @returns {Array} - return elements that was pop put
  */
 function _arrayPop(array, popCount) {
   return array.splice(array.length - popCount, popCount);
