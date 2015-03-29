@@ -1,13 +1,10 @@
 var Gitter = require('node-gitter');
 var util = require('util');
-var calc = require('./calc/shunting-yard-calc.js');
-
-var CALC_PATTERN = /^calc (.+)/;
 
 var defaultOptions = {
-  calcResultFormat: '>@%s: %s\n\n$$%s=%d$$',
-  calcErrorFormat: '>@%s: %s\n\n$$%s$$ - %s',
-  botGreetingMessage: false
+  botGreetingMessage: false,
+  evalResultFormat: '>@%s: %s\n\n$$%s=%d$$',
+  evalErrorFormat: '>@%s: %s\n\n$$%s$$ - %s'
 };
 
 /**
@@ -15,24 +12,56 @@ var defaultOptions = {
  * @param {string} token
  * @param {object} config
  * @param {string} [config.botGreetingMessage] - bot greeting message
- * @param {string} [config.calcResultFormat] - calc result format
- * @param {string} [config.calcErrorFormat] - calc error format
- * @param {string} [config.invalidSymbolsUsedMessage] - calc invalid symbols used error message
- * @param {string} [config.invalidExpressionMessage] - calc invalid expression error message
+ * @param {string} [config.evalResultFormat] - eval result format
+ * @param {string} [config.evalErrorFormat] - eval error format
+ * @param {Array<Object>} listeners
  * @constructor
  */
-function GitterBot(token, config) {
-  this.gitter = new Gitter(token);
-
-  var _config = {};
+function GitterBot(token, config, listeners) {
+  this._gitter = new Gitter(token);
 
   // set config default options
-  Object.keys(defaultOptions).forEach(function(key) {
-    _config[key] = (config && config[key]) || defaultOptions[key];
-  });
+  this._config = {};
+  for (var option in defaultOptions) {
+    if (defaultOptions.hasOwnProperty(option)) {
+      this._config[option] = (config && config[option]) || defaultOptions[option];
+    }
+  }
 
-  this.config = _config;
+  this._listeners = [];
+
+  if (listeners && listeners.length) {
+    this.setListeners(listeners);
+  }
 }
+
+GitterBot.prototype.setListeners = function(listeners) {
+  this._listeners = [];
+  listeners.forEach(this.registerMessageListener.bind(this));
+};
+
+/**
+ * Register room message listener
+ * @param {Object} listener
+ * @param {string} listener.name
+ * @param {RegExp} listener.pattern
+ * @param {Function} listener.eval
+ */
+GitterBot.prototype.registerMessageListener = function(listener) {
+  if (typeof listener.name !== 'string') {
+    throw Error('Message listener not provided.');
+  }
+
+  if (!(listener.pattern instanceof RegExp)) {
+    throw Error('Message listener pattern is not RegExp.');
+  }
+
+  if (!(listener.eval instanceof Function)) {
+    throw Error('Message listener eval is not Function.');
+  }
+
+  this._listeners.push(listener);
+};
 
 /**
  * Join to room
@@ -40,7 +69,11 @@ function GitterBot(token, config) {
  * @returns {Object} - room promise
  */
 GitterBot.prototype.joinRoom = function(roomName) {
-  var gitter = this.gitter;
+  var gitter = this._gitter;
+
+  if (!this._listeners.length) {
+    throw Error('There are no message listeners for bot');
+  }
 
   return gitter.rooms.join(roomName)
     .then(function(room) {
@@ -58,7 +91,7 @@ GitterBot.prototype.joinRoom = function(roomName) {
  * @returns {Object} - room leave promise
  */
 GitterBot.prototype.leaveRoom = function(roomName) {
-  var gitter = this.gitter;
+  var gitter = this._gitter;
 
   return gitter.currentUser()
     .then(function(botUser) {
@@ -107,11 +140,11 @@ GitterBot.prototype.leaveRoom = function(roomName) {
 GitterBot.prototype._handleBotJoined = function(botUser, room) {
   util.log('Gitter bot ' + botUser.username + ' in room ' + room.name);
 
-  if (this.config.botGreetingMessage) {
-    room.send(this.config.botGreetingMessage);
+  if (this._config.botGreetingMessage) {
+    room.send(this._config.botGreetingMessage);
   }
 
-  return this._listenRoom(room)
+  return this._listenRoom(room);
 };
 
 /**
@@ -137,32 +170,35 @@ GitterBot.prototype._listenRoom = function(room) {
  * @private
  */
 GitterBot.prototype._handleRoomMessage = function(room, message) {
-  var match;
-  var expression;
-  var expressionResult;
+  var self = this;
 
-  // check if message text match calc pattern
-  match = message.text.match(CALC_PATTERN);
+  this._listeners.forEach(function(listener) {
+    var match;
+    var expression;
+    var expressionResult;
 
-  if (match) {
+    // check if message text match listener pattern
+    match = message.text.match(listener.pattern);
 
-    // if calc pattern matched
-    // check if expression is safe and uses valid symbols
-    // and try evaluate
+    if (match) {
 
-    expression = match[1];
+      // if listener pattern matched
+      // and try evaluate
 
-    try {
-      expressionResult = calc(expression);
+      expression = match[1];
 
-      util.log('calc:', expression + '=' + expressionResult);
-      room.send(this._formatExpressionResult(message, expression, expressionResult));
+      try {
+        expressionResult = listener.eval(expression);
 
-    } catch(e) {
-      util.log('calc:', expression + ' - ' + e.message);
-      room.send(this._formatInvalidExpression(message, expression, e.message));
+        util.log(listener.name + ': ' + expression + ' - ' + expressionResult);
+        room.send(self._formatExpressionResult(message, expression, expressionResult));
+
+      } catch(e) {
+        util.log(listener.name + ': ' + expression + ' - ' + e.message);
+        room.send(self._formatInvalidExpression(message, expression, e.message));
+      }
     }
-  }
+  });
 };
 
 /**
@@ -171,12 +207,12 @@ GitterBot.prototype._handleRoomMessage = function(room, message) {
  * @param {User} message.fromUser - User that sent the message
  * @param {string} message.fromUser.username - Name of user that sent the message
  * @param {string} message.text - Plain message text
- * @param {string} expression - arithmetic expression
- * @param {number} result - arithmetic expression result
+ * @param {string} expression
+ * @param {number} result
  * @private
  */
 GitterBot.prototype._formatExpressionResult = function(message, expression, result) {
-  return util.format(this.config.calcResultFormat, message.fromUser.username, message.text, expression, result);
+  return util.format(this._config.evalResultFormat, message.fromUser.username, message.text, expression, result);
 };
 
 /**
@@ -185,12 +221,12 @@ GitterBot.prototype._formatExpressionResult = function(message, expression, resu
  * @param {User} message.fromUser - User that sent the message
  * @param {string} message.fromUser.username - Name of user that sent the message
  * @param {string} message.text - Plain message text
- * @param {string} expression - arithmetic expression
- * @param {string} errorMessage - invalid arithmetic expression error message
+ * @param {string} expression
+ * @param {string} errorMessage
  * @private
  */
 GitterBot.prototype._formatInvalidExpression = function(message, expression, errorMessage) {
-  return util.format(this.config.calcErrorFormat, message.fromUser.username, message.text, expression, errorMessage);
+  return util.format(this._config.evalErrorFormat, message.fromUser.username, message.text, expression, errorMessage);
 };
 
 module.exports = GitterBot;

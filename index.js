@@ -1,4 +1,4 @@
-var Bot = require('./bot.js');
+var CalcBot = require('./calc-bot.js');
 var config = require('./config.json');
 
 var gitterToken = process.env.TOKEN || config.token;
@@ -12,7 +12,7 @@ if (!gitterToken || !roomName) {
   process.exit(1);
 }
 
-var bot = new Bot(gitterToken, config);
+var bot = new CalcBot(gitterToken, config);
 
 bot.joinRoom(roomName);
 

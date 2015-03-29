@@ -25,7 +25,8 @@ var errorMessage = {
   UNMATCHED_PARENTHESIS: 'Unmatched parenthesis.',
   UNEXPECTED_TOKEN: 'Unexpected token "%s" at %s',
   UNEXPECTED_NUMBER: 'Unexpected number "%s"',
-  INVALID_OPERATION: 'Invalid operation "%s=%s"'
+  INVALID_OPERATION: 'Invalid operation "%s=%s"',
+  INVALID_ARITHMETIC_EXPRESSION: 'Invalid arithmetic expression'
 };
 
 /**
@@ -42,7 +43,7 @@ function shuntingYardCalc(expression) {
 
   // While there are tokens to be read:
 
-  _tokensEach(expression, function(token, prevToken) {
+  _tokensEach(expression, function(token) {
     var number;
     var o1, o2;
 
@@ -81,7 +82,7 @@ function shuntingYardCalc(expression) {
 
           _evaluate(stack.pop(), output);
 
-        }
+        } 
 
         // push o1 onto the operator stack.
 
@@ -123,7 +124,6 @@ function shuntingYardCalc(expression) {
 
       default:
         throw new Error(util.format(errorMessage.UNEXPECTED_TOKEN, token.value, token.index));
-        break
     }
 
   });
@@ -185,7 +185,7 @@ function _evaluate(token, output) {
  * @private
  */
 function _tokensEach(expression, iteratee) {
-  _arrayEach(_getTokens(expression), iteratee);
+  _getTokens(expression).forEach(iteratee);
 }
 
 /**
@@ -198,17 +198,17 @@ function _getTokens(expression) {
   var tokens = [];
 
   expression.split('').forEach(function(char, index) {
-    var token;
+    var prevToken = tokens[tokens.length - 1];
 
     if (DIGIT_OR_DOT.test(char)) {
 
       // if is digit or dot
 
-      if (tokens.length && tokens[tokens.length - 1].type === tokenType.NUMBER) {
+      if (prevToken && prevToken.type === tokenType.NUMBER) {
 
         // if previous token also number part
         // concatenate
-        tokens[tokens.length - 1].value += char;
+        prevToken.value += char;
 
       } else {
 
@@ -230,18 +230,40 @@ function _getTokens(expression) {
       // then mark operator as unary
 
       tokens.push({
-        value: _isUnaryOperator(char, tokens[tokens.length - 1]) ? 'u' + char : char,
+        value: _isUnaryOperator(char, prevToken) ? 'u' + char : char,
         type: tokenType.OPERATOR,
         index: index
       });
 
-    } else if (char === '(' || char == ')') {
+    } else if (char === '(') {
+
+      if (prevToken && prevToken.type !== tokenType.OPERATOR) {
+        // insert multiplier
+        tokens.push({
+          value: '*',
+          type: tokenType.OPERATOR,
+          index: index
+        });
+      }
 
       tokens.push({
         value: char,
-        type: char === '(' ? tokenType.LEFT_PARENTHESIS : tokenType.RIGHT_PARENTHESIS,
+        type: tokenType.LEFT_PARENTHESIS,
         index: index
-      })
+      });
+
+    } else if (char === ')') {
+
+      if (prevToken.type === tokenType.LEFT_PARENTHESIS) {
+        // skip empty parenthesis
+        throw new Error(util.format(errorMessage.INVALID_ARITHMETIC_EXPRESSION));
+      }
+
+      tokens.push({
+        value: char,
+        type: tokenType.RIGHT_PARENTHESIS,
+        index: index
+      });
 
     } else if (char !== ' ') {
       throw new Error(util.format(errorMessage.UNEXPECTED_TOKEN, char, index));
@@ -261,7 +283,7 @@ function _getTokens(expression) {
  */
 function _isUnaryOperator(char, tokenBefore) {
   return (
-    char === '+' || char === '-' &&
+    (char === '+' || char === '-') &&
     (!tokenBefore || tokenBefore.type === tokenType.OPERATOR || tokenBefore.type === tokenType.LEFT_PARENTHESIS)
   );
 }
@@ -286,23 +308,6 @@ function _opPrecedence(token) {
  */
 function _fixNumber(num) {
   return num && parseFloat(num.toPrecision(12));
-}
-
-/**
- * Iterates over item of `array` invoking `iteratee` for each token.
- * @param {Array} array
- * @param {Function} iteratee
- * @private
- */
-function _arrayEach(array, iteratee) {
-  var index = -1;
-  var length = array.length;
-
-  while (++index < length) {
-    if (iteratee(array[index], array[index - 1], index, array) === false) {
-      break;
-    }
-  }
 }
 
 /**
